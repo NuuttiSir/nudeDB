@@ -1,12 +1,25 @@
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 //TODO: Can switch unrecognized command stuff for exception throwing
 //TODO: Might be able to handle just the inputBuffer without making the command variable IDK
 public class Main {
 
     private final static int TABLE_MAX_PAGES = 100;
+    private final static int PAGE_SIZE = 4096;
+
+    // NOTE: ROW_SIZE = IDSIZE + USERNAMESIZE + EMAILSIZE IDK
+    // TODO: MAKE BETTER LIKE IN C one would
+    private static final int ID_SIZE = Long.BYTES;
+    private static final int USERNAME_SIZE = 32;
+    private static final int EMAIL_SIZE = 255;
+    private final static int ROW_SIZE = ID_SIZE + USERNAME_SIZE + EMAIL_SIZE; // 295 bytes
+
+    private final static int ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
+    private final static int TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
     private enum MetaCommandResult {
         META_COMMAND_SUCCESS,
@@ -38,29 +51,28 @@ public class Main {
         long id;
         String username;
         String email;
+
+        @Override
+        public String toString() {
+            return String.format("id: %d, username: %s, email: %s", id, username, email);
+        }
     }
-
-    private final static int PAGE_SIZE = 4096;
-
-    // NOTE: ROW_SIZE = IDSIZE + USERNAMESIZE + EMAILSIZE IDK
-    // TODO: MAKE BETTER LIKE IN C one would
-    private final static int ROW_SIZE = Long.SIZE + 32 + 255;
-    private final static int ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
-    private final static int TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
     // TODO: Change to generic maybe
     private static class Table {
-        int num_rows;
-        Object pages[];
+        int num_rows = 0;
+        byte[][] pages = new byte[TABLE_MAX_PAGES][];
     }
 
     public static void main(String[] args) throws IOException {
+        Table table = new Table();
         BufferedReader inputBuffer = new BufferedReader(new InputStreamReader(System.in));
+
         while (true) {
             System.out.print("db > ");
             String command = inputBuffer.readLine();
 
-            if (command.startsWith(".")) {
+            if (command.trim().startsWith(".")) {
                 switch (doMetaCommand(command)) {
                     case MetaCommandResult.META_COMMAND_SUCCESS:
                         continue;
@@ -77,9 +89,19 @@ public class Main {
                 case PrepareResult.PREPARE_UNRECOGNIZED_STATEMENT:
                     System.out.printf("Unrecognized keyword at start of '%s'.\n", command);
                     continue;
+                case PrepareResult.PREPARE_SYNTAX_ERROR:
+                    System.out.println("Syntax error. Could not parse statement.");
+                    continue;
             }
-            executeStatement(statement);
-            System.out.println("Executed");
+
+            switch (executeStatement(statement, table)) {
+                case EXECUTE_SUCCESS:
+                    System.out.println("Executed.");
+                    continue;
+                case EXECUTE_TABLE_FULL:
+                    System.out.println("ERROR: Table full.");
+                    break;
+            }
         }
     }
 
@@ -109,9 +131,13 @@ public class Main {
                 return PrepareResult.PREPARE_SYNTAX_ERROR;
             }
 
-            statement.rowToInsert.id = Long.parseLong(commandParts[1]);
-            statement.rowToInsert.username = commandParts[2];
-            statement.rowToInsert.email = commandParts[3];
+            try {
+                statement.rowToInsert.id = Long.parseLong(commandParts[1]);
+                statement.rowToInsert.username = commandParts[2];
+                statement.rowToInsert.email = commandParts[3];
+            } catch (Exception e) {
+                return PrepareResult.PREPARE_SYNTAX_ERROR;
+            }
 
             return PrepareResult.PREPARE_SUCCESS;
         }
@@ -138,31 +164,75 @@ public class Main {
         Row row = new Row();
         for (int i = 0; i < table.num_rows; i++) {
             deserializeRow(rowSlot(table, i), row);
-            System.out.println(row);
+            System.out.println(row.toString());
         }
         return ExecuteResult.EXECUTE_SUCCESS;
     }
 
-    private static void executeStatement(Statement statement) {
+    private static ExecuteResult executeStatement(Statement statement, Table table) {
         switch (statement.type) {
-            case STATEMENT_INSERT:
-                System.out.println("This is where we would do insert");
-                break;
-            case STATEMENT_SELECT:
-                System.out.println("This is where we would do select");
-                break;
+            case StatementType.STATEMENT_INSERT:
+                return executeInsert(statement, table);
+            case StatementType.STATEMENT_SELECT:
+                return executeSelect(statement, table);
         }
+        // Just so it doesnt cry
+        return ExecuteResult.EXECUTE_SUCCESS;
     }
 
-    private static int row_slot(Table table, int row_num) {
+    private static void serializeRow(Row source, ByteBuffer destination) {
+        // id
+        destination.putLong(source.id);
+
+        // username — write bytes then pad remaining space with zeros
+        byte[] usernameBytes = source.username.getBytes(StandardCharsets.UTF_8);
+        destination.put(usernameBytes, 0, Math.min(usernameBytes.length, USERNAME_SIZE));
+        // Pad with zeros if username is shorter than USERNAME_SIZE
+        for (int i = usernameBytes.length; i < USERNAME_SIZE; i++)
+            destination.put((byte) 0);
+
+        // email
+        byte[] emailBytes = source.email.getBytes(StandardCharsets.UTF_8);
+        destination.put(emailBytes, 0, Math.min(emailBytes.length, EMAIL_SIZE));
+        for (int i = emailBytes.length; i < EMAIL_SIZE; i++)
+            destination.put((byte) 0);
+    }
+
+    private static void deserializeRow(ByteBuffer source, Row destination) {
+        // id
+        destination.id = source.getLong();
+
+        // username — read USERNAME_SIZE bytes, trim null padding
+        byte[] usernameBytes = new byte[USERNAME_SIZE];
+        source.get(usernameBytes);
+        int usernameLen = 0;
+        while (usernameLen < USERNAME_SIZE && usernameBytes[usernameLen] != 0)
+            usernameLen++;
+        destination.username = new String(usernameBytes, 0, usernameLen, StandardCharsets.UTF_8);
+
+        // email
+        byte[] emailBytes = new byte[EMAIL_SIZE];
+        source.get(emailBytes);
+        int emailLen = 0;
+        while (emailLen < EMAIL_SIZE && emailBytes[emailLen] != 0)
+            emailLen++;
+        destination.email = new String(emailBytes, 0, emailLen, StandardCharsets.UTF_8);
+    }
+
+    private static ByteBuffer rowSlot(Table table, int row_num) {
         int page_num = row_num / ROWS_PER_PAGE;
-        Object page = table.pages[page_num];
-        if (page == null) {
-            // IN C would alloate mem.
+
+        // Lazily allocate the page
+        if (table.pages[page_num] == null) {
+            table.pages[page_num] = new byte[PAGE_SIZE];
         }
+
         int row_offset = row_num % ROWS_PER_PAGE;
         int byte_offset = row_offset * ROW_SIZE;
-        return (int) page + byte_offset;
 
+        // Wrap the page array in a ByteBuffer and position it at this row's slot
+        ByteBuffer buffer = ByteBuffer.wrap(table.pages[page_num]);
+        buffer.position(byte_offset);
+        return buffer;
     }
 }
