@@ -6,6 +6,8 @@ import java.io.InputStreamReader;
 //TODO: Might be able to handle just the inputBuffer without making the command variable IDK
 public class Main {
 
+    private final static int TABLE_MAX_PAGES = 100;
+
     private enum MetaCommandResult {
         META_COMMAND_SUCCESS,
         META_COMMAND_UNRECOGNIZED_COMMAND
@@ -13,7 +15,8 @@ public class Main {
 
     private enum PrepareResult {
         PREPARE_SUCCESS,
-        PREPARE_UNRECOGNIZED_STATEMENT
+        PREPARE_UNRECOGNIZED_STATEMENT,
+        PREPARE_SYNTAX_ERROR
     }
 
     private enum StatementType {
@@ -21,8 +24,34 @@ public class Main {
         STATEMENT_SELECT
     }
 
+    private enum ExecuteResult {
+        EXECUTE_SUCCESS,
+        EXECUTE_TABLE_FULL
+    }
+
     private static class Statement {
         StatementType type;
+        Row rowToInsert;
+    }
+
+    private static class Row {
+        long id;
+        String username;
+        String email;
+    }
+
+    private final static int PAGE_SIZE = 4096;
+
+    // NOTE: ROW_SIZE = IDSIZE + USERNAMESIZE + EMAILSIZE IDK
+    // TODO: MAKE BETTER LIKE IN C one would
+    private final static int ROW_SIZE = Long.SIZE + 32 + 255;
+    private final static int ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
+    private final static int TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES;
+
+    // TODO: Change to generic maybe
+    private static class Table {
+        int num_rows;
+        Object pages[];
     }
 
     public static void main(String[] args) throws IOException {
@@ -72,6 +101,18 @@ public class Main {
         // it compares 0..6 chars from command to string insert
         if (command.regionMatches(true, 0, "insert", 0, 6)) {
             statement.type = StatementType.STATEMENT_INSERT;
+            statement.rowToInsert = new Row();
+            // insert looks like insert id username email
+            // Split on one or more whitespace characters (\\s+)
+            String[] commandParts = command.split("\\s+");
+            if (commandParts.length < 4) {
+                return PrepareResult.PREPARE_SYNTAX_ERROR;
+            }
+
+            statement.rowToInsert.id = Long.parseLong(commandParts[1]);
+            statement.rowToInsert.username = commandParts[2];
+            statement.rowToInsert.email = commandParts[3];
+
             return PrepareResult.PREPARE_SUCCESS;
         }
 
@@ -80,6 +121,26 @@ public class Main {
             return PrepareResult.PREPARE_SUCCESS;
         }
         return PrepareResult.PREPARE_UNRECOGNIZED_STATEMENT;
+    }
+
+    private static ExecuteResult executeInsert(Statement statement, Table table) {
+        if (table.num_rows >= TABLE_MAX_ROWS) {
+            return ExecuteResult.EXECUTE_TABLE_FULL;
+        }
+        Row rowToInsert = statement.rowToInsert;
+        serializeRow(rowToInsert, rowSlot(table, table.num_rows));
+        table.num_rows += 1;
+
+        return ExecuteResult.EXECUTE_SUCCESS;
+    }
+
+    private static ExecuteResult executeSelect(Statement statement, Table table) {
+        Row row = new Row();
+        for (int i = 0; i < table.num_rows; i++) {
+            deserializeRow(rowSlot(table, i), row);
+            System.out.println(row);
+        }
+        return ExecuteResult.EXECUTE_SUCCESS;
     }
 
     private static void executeStatement(Statement statement) {
@@ -91,5 +152,17 @@ public class Main {
                 System.out.println("This is where we would do select");
                 break;
         }
+    }
+
+    private static int row_slot(Table table, int row_num) {
+        int page_num = row_num / ROWS_PER_PAGE;
+        Object page = table.pages[page_num];
+        if (page == null) {
+            // IN C would alloate mem.
+        }
+        int row_offset = row_num % ROWS_PER_PAGE;
+        int byte_offset = row_offset * ROW_SIZE;
+        return (int) page + byte_offset;
+
     }
 }
