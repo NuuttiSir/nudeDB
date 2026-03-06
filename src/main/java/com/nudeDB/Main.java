@@ -1,3 +1,5 @@
+package com.nudeDB;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -23,7 +25,8 @@ public class Main {
 
     private enum MetaCommandResult {
         META_COMMAND_SUCCESS,
-        META_COMMAND_UNRECOGNIZED_COMMAND
+        META_COMMAND_UNRECOGNIZED_COMMAND,
+        META_COMMAND_EXIT // for the .exit for now
     }
 
     private enum PrepareResult {
@@ -74,6 +77,9 @@ public class Main {
 
             if (command.trim().startsWith(".")) {
                 switch (doMetaCommand(command)) {
+                    // NOTE: For the .exit for now might need to change
+                    case MetaCommandResult.META_COMMAND_EXIT:
+                        return;
                     case MetaCommandResult.META_COMMAND_SUCCESS:
                         continue;
                     case MetaCommandResult.META_COMMAND_UNRECOGNIZED_COMMAND:
@@ -107,9 +113,7 @@ public class Main {
 
     private static MetaCommandResult doMetaCommand(String command) {
         if (command.equals(".exit")) {
-            System.exit(0);
-            // For func to not cry for not returning anything
-            return MetaCommandResult.META_COMMAND_SUCCESS;
+            return MetaCommandResult.META_COMMAND_EXIT;
         } else {
             return MetaCommandResult.META_COMMAND_UNRECOGNIZED_COMMAND;
         }
@@ -132,6 +136,7 @@ public class Main {
             }
 
             try {
+                // TODO: Add that string can be too long
                 statement.rowToInsert.id = Long.parseLong(commandParts[1]);
                 statement.rowToInsert.username = commandParts[2];
                 statement.rowToInsert.email = commandParts[3];
