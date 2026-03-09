@@ -32,7 +32,9 @@ public class Main {
     private enum PrepareResult {
         PREPARE_SUCCESS,
         PREPARE_UNRECOGNIZED_STATEMENT,
-        PREPARE_SYNTAX_ERROR
+        PREPARE_SYNTAX_ERROR,
+        PREPARE_STRING_TOO_LONG,
+        PREPARE_NEGATIVE_ID
     }
 
     private enum StatementType {
@@ -95,6 +97,12 @@ public class Main {
                 case PrepareResult.PREPARE_UNRECOGNIZED_STATEMENT:
                     System.out.printf("Unrecognized keyword at start of '%s'.\n", command);
                     continue;
+                case PREPARE_STRING_TOO_LONG:
+                    System.out.println("String is too long.");
+                    continue;
+                case PREPARE_NEGATIVE_ID:
+                    System.out.println("ID must be positive.");
+                    continue;
                 case PrepareResult.PREPARE_SYNTAX_ERROR:
                     System.out.println("Syntax error. Could not parse statement.");
                     continue;
@@ -126,25 +134,7 @@ public class Main {
         // so if command = insert foo bar
         // it compares 0..6 chars from command to string insert
         if (command.regionMatches(true, 0, "insert", 0, 6)) {
-            statement.type = StatementType.STATEMENT_INSERT;
-            statement.rowToInsert = new Row();
-            // insert looks like insert id username email
-            // Split on one or more whitespace characters (\\s+)
-            String[] commandParts = command.split("\\s+");
-            if (commandParts.length < 4) {
-                return PrepareResult.PREPARE_SYNTAX_ERROR;
-            }
-
-            try {
-                // TODO: Add that string can be too long
-                statement.rowToInsert.id = Long.parseLong(commandParts[1]);
-                statement.rowToInsert.username = commandParts[2];
-                statement.rowToInsert.email = commandParts[3];
-            } catch (Exception e) {
-                return PrepareResult.PREPARE_SYNTAX_ERROR;
-            }
-
-            return PrepareResult.PREPARE_SUCCESS;
+            return prepareInsert(command, statement);
         }
 
         if (command.regionMatches(true, 0, "select", 0, 6)) {
@@ -152,6 +142,42 @@ public class Main {
             return PrepareResult.PREPARE_SUCCESS;
         }
         return PrepareResult.PREPARE_UNRECOGNIZED_STATEMENT;
+    }
+
+    private static PrepareResult prepareInsert(String command, Statement statement) {
+        statement.type = StatementType.STATEMENT_INSERT;
+        statement.rowToInsert = new Row();
+        // TODO: Check if regex can be switched to just whitespace or one space
+        // delimiter
+        String[] commandParts = command.split("\\s+");
+        String keyword = commandParts[0];
+        String idString = commandParts[1];
+        String username = commandParts[2];
+        String email = commandParts[3];
+
+        if (idString == null || idString.isEmpty()
+                || username == null || username.isEmpty()
+                || email == null || email.isEmpty()) {
+            return PrepareResult.PREPARE_SYNTAX_ERROR;
+        }
+
+        long id = Long.parseLong(idString);
+        if (id < 0) {
+            return PrepareResult.PREPARE_NEGATIVE_ID;
+        }
+        if (username.length() > USERNAME_SIZE) {
+            return PrepareResult.PREPARE_STRING_TOO_LONG;
+        }
+        if (email.length() == EMAIL_SIZE) {
+            return PrepareResult.PREPARE_STRING_TOO_LONG;
+        }
+
+        statement.rowToInsert.id = id;
+        statement.rowToInsert.username = username;
+        statement.rowToInsert.email = email;
+
+        return PrepareResult.PREPARE_SUCCESS;
+
     }
 
     private static ExecuteResult executeInsert(Statement statement, Table table) {
