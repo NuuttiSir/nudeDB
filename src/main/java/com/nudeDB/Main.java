@@ -1,13 +1,18 @@
 package com.nudeDB;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 //TODO: Can switch unrecognized command stuff for exception throwing
 //TODO: Might be able to handle just the inputBuffer without making the command variable IDK
+//TODO: Check that do I need to change all bytebuffers to ints as we handle pages at the moment so int = pageNum
 public class Main {
 
     private final static int TABLE_MAX_PAGES = 100;
@@ -63,10 +68,16 @@ public class Main {
         }
     }
 
+    private static class Pager {
+        FileChannel fileDescriptor;
+        long fileLength;
+        byte[][] pages = new byte[TABLE_MAX_PAGES][];
+    }
+
     // TODO: Change to generic maybe
     private static class Table {
-        int num_rows = 0;
-        byte[][] pages = new byte[TABLE_MAX_PAGES][];
+        long num_rows = 0;
+        Pager pager;
     }
 
     public static void main(String[] args) throws IOException {
@@ -168,7 +179,7 @@ public class Main {
         if (username.length() > USERNAME_SIZE) {
             return PrepareResult.PREPARE_STRING_TOO_LONG;
         }
-        if (email.length() == EMAIL_SIZE) {
+        if (email.length() > EMAIL_SIZE) {
             return PrepareResult.PREPARE_STRING_TOO_LONG;
         }
 
@@ -250,20 +261,45 @@ public class Main {
         destination.email = new String(emailBytes, 0, emailLen, StandardCharsets.UTF_8);
     }
 
-    private static ByteBuffer rowSlot(Table table, int row_num) {
+    // TODO: Change
+    private static int rowSlot(Table table, int row_num) {
         int page_num = row_num / ROWS_PER_PAGE;
-
-        // Lazily allocate the page
-        if (table.pages[page_num] == null) {
-            table.pages[page_num] = new byte[PAGE_SIZE];
-        }
-
+        int page = getPage(table.pager, page_num);
         int row_offset = row_num % ROWS_PER_PAGE;
         int byte_offset = row_offset * ROW_SIZE;
 
-        // Wrap the page array in a ByteBuffer and position it at this row's slot
-        ByteBuffer buffer = ByteBuffer.wrap(table.pages[page_num]);
-        buffer.position(byte_offset);
-        return buffer;
+        return page + byte_offset;
+    }
+
+    private static Table dbOpen(final String filename) throws IOException {
+        Pager pager = pagerOpen(filename);
+
+        long numRows = pager.fileLength / ROW_SIZE;
+
+        Table table = new Table();
+        table.pager = pager;
+        table.num_rows = numRows;
+
+        return table;
+    }
+
+    private static Pager pagerOpen(final String filename) throws IOException {
+        FileChannel fileChannel = FileChannel.open(
+                Path.of(filename),
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE);
+
+        long fileSize = fileChannel.size();
+
+        Pager pager = new Pager();
+        pager.fileDescriptor = fileChannel;
+        pager.fileLength = fileSize;
+
+        for (int i = 0; i < TABLE_MAX_PAGES; i++) {
+            pager.pages[i] = null;
+        }
+
+        return pager;
     }
 }
