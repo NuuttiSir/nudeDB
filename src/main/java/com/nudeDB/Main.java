@@ -81,7 +81,14 @@ public class Main {
     }
 
     public static void main(String[] args) throws IOException {
-        Table table = new Table();
+        if (args.length < 2) {
+            System.out.println("Must supply a database filename.");
+            return;
+        }
+
+        String filename = args[0];
+        Table table = dbOpen(filename);
+
         BufferedReader inputBuffer = new BufferedReader(new InputStreamReader(System.in));
 
         while (true) {
@@ -89,7 +96,7 @@ public class Main {
             String command = inputBuffer.readLine();
 
             if (command.trim().startsWith(".")) {
-                switch (doMetaCommand(command)) {
+                switch (doMetaCommand(command, table)) {
                     // NOTE: For the .exit for now might need to change
                     case MetaCommandResult.META_COMMAND_EXIT:
                         return;
@@ -130,8 +137,9 @@ public class Main {
         }
     }
 
-    private static MetaCommandResult doMetaCommand(String command) {
+    private static MetaCommandResult doMetaCommand(String command, Table table) throws IOException {
         if (command.equals(".exit")) {
+            dbClose(table);
             return MetaCommandResult.META_COMMAND_EXIT;
         } else {
             return MetaCommandResult.META_COMMAND_UNRECOGNIZED_COMMAND;
@@ -301,5 +309,80 @@ public class Main {
         }
 
         return pager;
+    }
+
+    private static byte[] getPage(Pager pager, long pageNum) throws IOException {
+        if (pageNum > TABLE_MAX_PAGES) {
+            System.out.printf("Tried to fetch page number out of bounds. %d < %d", pageNum, TABLE_MAX_PAGES);
+            return null;
+        }
+
+        if (pager.pages[(int) pageNum] == null) {
+            // Cache miss
+            byte[] page = new byte[PAGE_SIZE];
+            long numPages = pager.fileLength / PAGE_SIZE;
+
+            if (pager.fileLength % (long) PAGE_SIZE != 0) {
+                numPages += 1;
+            }
+
+            if (pageNum <= numPages) {
+                pager.fileDescriptor.position((long) pageNum * PAGE_SIZE);
+                ByteBuffer buffer = ByteBuffer.wrap(page);
+                int bytesRead = pager.fileDescriptor.read(buffer);
+                if (bytesRead == -1) {
+                    System.out.println("Error reading file.");
+                    return null;
+                }
+            }
+            pager.pages[(int) pageNum] = page;
+        }
+        return pager.pages[(int) pageNum];
+    }
+
+    private static void dbClose(Table table) throws IOException {
+        Pager pager = table.pager;
+        int numFullPages = (int) (table.num_rows / ROWS_PER_PAGE);
+
+        for (int i = 0; i < numFullPages; i++) {
+            if (pager.pages[i] == null) {
+                continue;
+            }
+            pagerFlush(pager, i, PAGE_SIZE);
+            pager.pages[i] = null;
+        }
+
+        // There may be a partial page to write to the end of the file
+        // This should not be needed after we switch to a B-tree
+        int numAdditionalRows = (int) (table.num_rows % ROWS_PER_PAGE);
+        if (numAdditionalRows > 0) {
+            int pageNum = numFullPages;
+            if (pager.pages[pageNum] != null) {
+                pagerFlush(pager, pageNum, numAdditionalRows * ROW_SIZE);
+                pager.pages[pageNum] = null;
+            }
+        }
+
+        // int result = close(pager.fileDescriptor);
+        pager.fileDescriptor.close();
+        // if (result == -1) {
+        // System.out.println("Error closing db file.");
+        // }
+        for (int i = 0; i < TABLE_MAX_PAGES; i++) {
+            byte[] page = pager.pages[i];
+            if (page != null) {
+                pager.pages[i] = null;
+            }
+        }
+    }
+
+    private static void pagerFlush(Pager pager, int pageNum, int size) throws IOException {
+        if (pager.pages[pageNum] == null) {
+            System.out.println("Tried to flush null page.");
+            throw new IllegalStateException("Tried to flush null page");
+        }
+        pager.fileDescriptor.position(pageNum * PAGE_SIZE);
+        ByteBuffer buffer = ByteBuffer.wrap(pager.pages[pageNum], 0, size);
+        pager.fileDescriptor.write(buffer);
     }
 }
