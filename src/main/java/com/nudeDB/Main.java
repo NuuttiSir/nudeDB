@@ -81,7 +81,7 @@ public class Main {
     }
 
     public static void main(String[] args) throws IOException {
-        if (args.length < 2) {
+        if (args.length < 1) {
             System.out.println("Must supply a database filename.");
             return;
         }
