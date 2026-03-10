@@ -58,7 +58,7 @@ public class Main {
     }
 
     private static class Row {
-        long id;
+        int id;
         String username;
         String email;
 
@@ -70,13 +70,13 @@ public class Main {
 
     private static class Pager {
         FileChannel fileDescriptor;
-        long fileLength;
+        int fileLength;
         byte[][] pages = new byte[TABLE_MAX_PAGES][];
     }
 
     // TODO: Change to generic maybe
     private static class Table {
-        long num_rows = 0;
+        int num_rows = 0;
         Pager pager;
     }
 
@@ -180,7 +180,7 @@ public class Main {
             return PrepareResult.PREPARE_SYNTAX_ERROR;
         }
 
-        long id = Long.parseLong(idString);
+        int id = Integer.parseInt(idString);
         if (id < 0) {
             return PrepareResult.PREPARE_NEGATIVE_ID;
         }
@@ -199,7 +199,7 @@ public class Main {
 
     }
 
-    private static ExecuteResult executeInsert(Statement statement, Table table) {
+    private static ExecuteResult executeInsert(Statement statement, Table table) throws IOException {
         if (table.num_rows >= TABLE_MAX_ROWS) {
             return ExecuteResult.EXECUTE_TABLE_FULL;
         }
@@ -210,7 +210,7 @@ public class Main {
         return ExecuteResult.EXECUTE_SUCCESS;
     }
 
-    private static ExecuteResult executeSelect(Statement statement, Table table) {
+    private static ExecuteResult executeSelect(Statement statement, Table table) throws IOException {
         Row row = new Row();
         for (int i = 0; i < table.num_rows; i++) {
             deserializeRow(rowSlot(table, i), row);
@@ -219,7 +219,7 @@ public class Main {
         return ExecuteResult.EXECUTE_SUCCESS;
     }
 
-    private static ExecuteResult executeStatement(Statement statement, Table table) {
+    private static ExecuteResult executeStatement(Statement statement, Table table) throws IOException {
         switch (statement.type) {
             case StatementType.STATEMENT_INSERT:
                 return executeInsert(statement, table);
@@ -232,7 +232,7 @@ public class Main {
 
     private static void serializeRow(Row source, ByteBuffer destination) {
         // id
-        destination.putLong(source.id);
+        destination.putInt(source.id);
 
         // username — write bytes then pad remaining space with zeros
         byte[] usernameBytes = source.username.getBytes(StandardCharsets.UTF_8);
@@ -250,7 +250,7 @@ public class Main {
 
     private static void deserializeRow(ByteBuffer source, Row destination) {
         // id
-        destination.id = source.getLong();
+        destination.id = source.getInt();
 
         // username — read USERNAME_SIZE bytes, trim null padding
         byte[] usernameBytes = new byte[USERNAME_SIZE];
@@ -270,19 +270,19 @@ public class Main {
     }
 
     // TODO: Change
-    private static int rowSlot(Table table, int row_num) {
+    private static ByteBuffer rowSlot(Table table, int row_num) throws IOException {
         int page_num = row_num / ROWS_PER_PAGE;
-        int page = getPage(table.pager, page_num);
+        byte[] page = getPage(table.pager, page_num);
         int row_offset = row_num % ROWS_PER_PAGE;
         int byte_offset = row_offset * ROW_SIZE;
 
-        return page + byte_offset;
+        return ByteBuffer.wrap(page, byte_offset, ROW_SIZE);
     }
 
     private static Table dbOpen(final String filename) throws IOException {
         Pager pager = pagerOpen(filename);
 
-        long numRows = pager.fileLength / ROW_SIZE;
+        int numRows = pager.fileLength / ROW_SIZE;
 
         Table table = new Table();
         table.pager = pager;
@@ -298,7 +298,7 @@ public class Main {
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE);
 
-        long fileSize = fileChannel.size();
+        int fileSize = (int) fileChannel.size();
 
         Pager pager = new Pager();
         pager.fileDescriptor = fileChannel;
@@ -311,7 +311,7 @@ public class Main {
         return pager;
     }
 
-    private static byte[] getPage(Pager pager, long pageNum) throws IOException {
+    private static byte[] getPage(Pager pager, int pageNum) throws IOException {
         if (pageNum > TABLE_MAX_PAGES) {
             System.out.printf("Tried to fetch page number out of bounds. %d < %d", pageNum, TABLE_MAX_PAGES);
             return null;
@@ -320,14 +320,14 @@ public class Main {
         if (pager.pages[(int) pageNum] == null) {
             // Cache miss
             byte[] page = new byte[PAGE_SIZE];
-            long numPages = pager.fileLength / PAGE_SIZE;
+            int numPages = pager.fileLength / PAGE_SIZE;
 
-            if (pager.fileLength % (long) PAGE_SIZE != 0) {
+            if (pager.fileLength % PAGE_SIZE != 0) {
                 numPages += 1;
             }
 
             if (pageNum <= numPages) {
-                pager.fileDescriptor.position((long) pageNum * PAGE_SIZE);
+                pager.fileDescriptor.position(pageNum * PAGE_SIZE);
                 ByteBuffer buffer = ByteBuffer.wrap(page);
                 int bytesRead = pager.fileDescriptor.read(buffer);
                 if (bytesRead == -1) {
