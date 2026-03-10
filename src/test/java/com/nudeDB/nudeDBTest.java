@@ -9,6 +9,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 public class nudeDBTest {
+
     @Test
     @DisplayName("inserts and retrieves a row")
     void insertsAndRetrievesARow() throws Exception {
@@ -23,8 +27,9 @@ public class nudeDBTest {
         ByteArrayOutputStream outputCapture = new ByteArrayOutputStream();
         System.setOut(new PrintStream(outputCapture));
 
+        Path dbFile = Files.createTempFile("nudedb-", ".db");
         try {
-            Main.main(new String[] {});
+            Main.main(new String[] { dbFile.toString() });
         } catch (Exception e) {
         }
 
@@ -43,8 +48,9 @@ public class nudeDBTest {
         ByteArrayOutputStream outputCapture = new ByteArrayOutputStream();
         System.setOut(new PrintStream(outputCapture));
 
+        Path dbFile = Files.createTempFile("nudedb-", ".db");
         try {
-            Main.main(new String[] {});
+            Main.main(new String[] { dbFile.toString() });
         } catch (Exception e) {
         }
 
@@ -61,8 +67,9 @@ public class nudeDBTest {
         ByteArrayOutputStream outputCapture = new ByteArrayOutputStream();
         System.setOut(new PrintStream(outputCapture));
 
+        Path dbFile = Files.createTempFile("nudedb-", ".db");
         try {
-            Main.main(new String[] {});
+            Main.main(new String[] { dbFile.toString() });
         } catch (Exception e) {
         }
 
@@ -80,8 +87,9 @@ public class nudeDBTest {
         ByteArrayOutputStream outputCapture = new ByteArrayOutputStream();
         System.setOut(new PrintStream(outputCapture));
 
+        Path dbFile = Files.createTempFile("nudedb-", ".db");
         try {
-            Main.main(new String[] {});
+            Main.main(new String[] { dbFile.toString() });
         } catch (Exception e) {
         }
 
@@ -97,8 +105,9 @@ public class nudeDBTest {
         ByteArrayOutputStream outputCapture = new ByteArrayOutputStream();
         System.setOut(new PrintStream(outputCapture));
 
+        Path dbFile = Files.createTempFile("nudedb-", ".db");
         try {
-            Main.main(new String[] {});
+            Main.main(new String[] { dbFile.toString() });
         } catch (Exception e) {
         }
 
@@ -108,17 +117,18 @@ public class nudeDBTest {
 
     @Test
     void keepsDataAfterClosingConnection() throws IOException, InterruptedException {
-        Process process1 = new ProcessBuilder("java", "-cp", "target/classes", "com.nudeDB.Main")
+        Path dbFile = Files.createTempFile("nudedb-", ".db");
+
+        Process process1 = new ProcessBuilder("java", "-cp", "target/classes", "com.nudeDB.Main", dbFile.toString())
                 .redirectErrorStream(true)
                 .start();
 
         PrintWriter writer1 = new PrintWriter(process1.getOutputStream(), true);
         writer1.println("insert 1 user1 person1@example.com");
-
         writer1.println(".exit");
         process1.waitFor();
 
-        Process process2 = new ProcessBuilder("java", "-cp", "target/classes", "com.nudeDB.Main")
+        Process process2 = new ProcessBuilder("java", "-cp", "target/classes", "com.nudeDB.Main", dbFile.toString())
                 .redirectErrorStream(true)
                 .start();
 
@@ -127,13 +137,7 @@ public class nudeDBTest {
         writer2.println(".exit");
         process2.waitFor();
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process2.getInputStream()));
-        List<String> output = new ArrayList<>();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            output.add(line);
-        }
-
-        assertTrue(output.contains("(1, user1, person1@example.com)"));
+        String text = new String(process2.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertTrue(text.contains("id: 1, username: user1, email: person1@example.com"));
     }
 }

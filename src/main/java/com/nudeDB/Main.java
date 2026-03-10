@@ -13,6 +13,7 @@ import java.nio.file.StandardOpenOption;
 //TODO: Can switch unrecognized command stuff for exception throwing
 //TODO: Might be able to handle just the inputBuffer without making the command variable IDK
 //TODO: Check that do I need to change all bytebuffers to ints as we handle pages at the moment so int = pageNum
+//TODO: Fails if insert statement is given <4 args, so fails with insert 1 or insert 1 foo
 public class Main {
 
     private final static int TABLE_MAX_PAGES = 100;
@@ -20,7 +21,7 @@ public class Main {
 
     // NOTE: ROW_SIZE = IDSIZE + USERNAMESIZE + EMAILSIZE IDK
     // TODO: MAKE BETTER LIKE IN C one would
-    private static final int ID_SIZE = Long.BYTES;
+    private static final int ID_SIZE = Integer.BYTES;
     private static final int USERNAME_SIZE = 32;
     private static final int EMAIL_SIZE = 255;
     private final static int ROW_SIZE = ID_SIZE + USERNAME_SIZE + EMAIL_SIZE; // 295 bytes
@@ -317,7 +318,7 @@ public class Main {
             return null;
         }
 
-        if (pager.pages[(int) pageNum] == null) {
+        if (pager.pages[pageNum] == null) {
             // Cache miss
             byte[] page = new byte[PAGE_SIZE];
             int numPages = pager.fileLength / PAGE_SIZE;
@@ -326,18 +327,21 @@ public class Main {
                 numPages += 1;
             }
 
-            if (pageNum <= numPages) {
+            if (pageNum < numPages) {
                 pager.fileDescriptor.position(pageNum * PAGE_SIZE);
                 ByteBuffer buffer = ByteBuffer.wrap(page);
                 int bytesRead = pager.fileDescriptor.read(buffer);
-                if (bytesRead == -1) {
-                    System.out.println("Error reading file.");
-                    return null;
+
+                if (bytesRead < 0) {
                 }
+                // if (bytesRead == -1) {
+                // System.out.println("Error reading file.");
+                // return page;
+                // }
             }
-            pager.pages[(int) pageNum] = page;
+            pager.pages[pageNum] = page;
         }
-        return pager.pages[(int) pageNum];
+        return pager.pages[pageNum];
     }
 
     private static void dbClose(Table table) throws IOException {
